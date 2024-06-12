@@ -102,10 +102,6 @@ def main(
                 agg,
             )
             assert summary_df.shape[1] > 0, "No data found in the summarized dataframe"
-            del index_df
-            del sparse_matrix
-            gc.collect()
-
             logger.info("Writing pivot file")
             return summary_df
 

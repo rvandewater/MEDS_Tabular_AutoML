@@ -22,7 +22,50 @@ def feature_name_to_code(feature_name: str) -> str:
     return "/".join(feature_name.split("/")[:-1])
 
 
-def get_long_code_df(df, ts_columns):
+def compute_rolling_windows(window_size, sparse_df):
+    """Get the indices for the rolling windows."""
+    if window_size == "full":
+        timedelta = pd.Timedelta(150 * 52, unit="W")  # just use 150 years as time delta
+    else:
+        timedelta = pd.Timedelta(window_size)
+    assert sparse_df.columns == ["patient_id", "timestamp", "code_index", "count"]
+    cols = sparse_df.select(pl.col("code_index").explode())
+    data = sparse_df.select(pl.col("count").explode())
+    index_df = sparse_df.select("patient_id", "timestamp")
+    rows = (
+        sparse_df.with_row_index("row_id")
+        .select(pl.col("row_id").repeat_by(pl.col("code_index").list.len()))
+        .select(pl.col("row_id").explode())
+    )
+    # x = pl.concat([data, rows, cols], how='horizontal')
+    # df_exploded = pl.concat([data, rows, cols], how='horizontal')
+
+    df_exploded = sparse_df.with_row_index("row_id").select([
+        pl.col("code_index").arr.explode(),
+        pl.col("count").arr.explode(),
+        pl.col("row_id").repeat_by(pl.col("code_index").list.lengths()).arr.explode(),
+        pl.col("patient_id").repeat_by(pl.col("code_index").list.lengths()).arr.explode(),
+        pl.col("timestamp").repeat_by(pl.col("code_index").list.lengths()).arr.explode(),
+    ])
+    
+    df_rolled = df_exploded.rolling(index_column="timestamp", period=timedelta, group_by=["patient_id", "code_index"], check_sorted=True).agg([pl.col("count").sum(),pl.col("timestamp").max().alias("last_seen"),])
+    exit()
+    sparse_df.head().rolling(index_column="timestamp", period=timedelta, group_by="patient_id").agg(pl.col("code_index", "count"))
+    rolling_idx = (
+        sparse_df.head().rolling(index_column="timestamp", period=timedelta, group_by="patient_id").agg([pl.col("index").min().alias("min_index"), pl.col("index").max().alias("max_index")]).select(pl.col("min_index", "max_index"))
+    )
+    import pdb; pdb.set_trace()
+    sparse_df.select(pl.struct(pl.col(["code_index", "count"])).alias("my_struct"))
+
+
+# rolling_idx = (
+#         sparse_df.with_row_index("index")
+#         .rolling(index_column="timestamp", period=timedelta, group_by="patient_id")
+#         .agg([pl.col("index").min().alias("min_index"), pl.col("index").max().alias("max_index")])
+#         .select(pl.col("min_index", "max_index"))
+#     )
+
+def get_long_code_df(df, ts_columns, window_size):
     """Pivots the codes data frame to a long format one-hot rep for time series data."""
     column_to_int = {feature_name_to_code(col): i for i, col in enumerate(ts_columns)}
     x = df.with_columns(
@@ -30,21 +73,24 @@ def get_long_code_df(df, ts_columns):
         pl.lit(1).alias("count"),
     ).drop("code")
     # sum up counts for same patient_id, timestamp, code_index
-    x = x.group_by("patient_id", "timestamp", "code_index").sum()
+    x = x.group_by("patient_id", "timestamp", "code_index", maintain_order=True).sum()
     # combine codes and counts for same patient_id, timestamp
     x = x.group_by("patient_id", "timestamp", maintain_order=True).agg(pl.col("code_index", "count"))
 
     # repeat row_index for each code_index on that row (i.e. 1 row == 1 unique patient_id x timestamp)
-    rows = (
-        x.with_row_index("row_index")
-        .select(pl.col("row_index").repeat_by(pl.col("code_index").list.len()))
-        .select(pl.col("row_index").explode())
-        .collect()
-        .to_numpy()
-        .T
-    )[0]
-    cols = x.select(pl.col("code_index").explode()).collect().to_numpy().T[0]
-    data = x.select(pl.col("count").explode()).collect().to_numpy().T[0]
+    # rows = (
+    #     x.with_row_index("row_index")
+    #     .select(pl.col("row_index").repeat_by(pl.col("code_index").list.len()))
+    #     .select(pl.col("row_index").explode())
+    # )
+    # cols = x.select(pl.col("code_index").explode())
+    # data = x.select(pl.col("count").explode())
+    # index_df = x.select("patient_id", "timestamp")
+    # x = pl.concat([data, rows, cols], how='horizontal')
+    index_df = x.select("patient_id", "timestamp")
+    windows_df = compute_rolling_windows( window_size, x.collect())
+    
+    # pl.concat([x, windows_df], how='horizontal')
     shape = (x.select(pl.len()).collect().item(), len(ts_columns))
     return data, (rows, cols), shape
 
@@ -72,6 +118,7 @@ def summarize_dynamic_measurements(
     agg: str,
     ts_columns: list[str],
     df: pd.DataFrame,
+    window_size,
 ) -> pd.DataFrame:
     """Summarize dynamic measurements for feature columns that are marked as 'dynamic'.
 
@@ -115,7 +162,7 @@ def summarize_dynamic_measurements(
     # Generate sparse matrix
     if agg in CODE_AGGREGATIONS:
         code_df = df.drop(*(["numerical_value"]))
-        data, (rows, cols), shape = get_long_code_df(code_df, ts_columns)
+        data, (rows, cols), shape = get_long_code_df(code_df, ts_columns, window_size)
     elif agg in VALUE_AGGREGATIONS:
         value_df = df.drop(*id_cols)
         data, (rows, cols) = get_long_value_df(value_df, ts_columns)
@@ -132,6 +179,7 @@ def get_flat_ts_rep(
     agg: str,
     feature_columns: list[str],
     shard_df: DF_T,
+    window_size: str,
 ) -> pl.LazyFrame:
     """Produce a flat time series representation from a given data frame, focusing on non-static feature
     columns.
@@ -169,4 +217,4 @@ def get_flat_ts_rep(
     # Remove codes not in training set
     shard_df = get_events_df(shard_df, feature_columns)
     ts_columns = get_feature_names(agg, feature_columns)
-    return summarize_dynamic_measurements(agg, ts_columns, shard_df)
+    return summarize_dynamic_measurements(agg, ts_columns, shard_df, window_size)

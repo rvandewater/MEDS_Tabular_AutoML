@@ -293,12 +293,13 @@ if __name__ == "__main__":
     feature_columns = get_feature_columns(feature_columns_fp)
     df = pl.scan_parquet(shard_fp)
     agg = "code/count"
-    index_df, sparse_matrix = get_flat_ts_rep(agg, feature_columns, df)
+    window_size = "full"
+    index_df, sparse_matrix = get_flat_ts_rep(agg, feature_columns, df, window_size)
     generate_summary(
         feature_columns=feature_columns,
         index_df=index_df,
         matrix=sparse_matrix,
-        window_size="full",
+        window_size=window_size,
         agg=agg,
         use_tqdm=True,
     )
