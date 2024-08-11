@@ -36,6 +36,14 @@ def convert_to_matrix(df: pl.DataFrame, num_events: int, num_features: int) -> c
     Returns:
         A sparse matrix representation of the DataFrame.
     """
+    L = df.select(pl.len()).collect().item()
+    if L == 0:
+        raise ValueError("DataFrame is empty!")
+    else:
+        logger.debug(
+            f"Converting DataFrame of len {L} to sparse matrix with {num_events} "
+            f"events and {num_features} features"
+        )
     dense_matrix = df.drop("patient_id").collect().to_numpy()
     data_list = []
     rows = []
@@ -65,14 +73,16 @@ def get_sparse_static_rep(
     Returns:
         A sparse array representation of the merged static and time-series features.
     """
+
+    L = static_df.select(pl.len()).collect().item()
+    if L == 0:
+        raise ValueError("Static DataFrame is empty!")
+
     # Make static data sparse and merge it with the time-series data
     logger.info("Make static data sparse and merge it with the time-series data")
     # Check static_df is sorted and unique
     assert static_df.select(pl.col("patient_id")).collect().to_series().is_sorted()
-    assert (
-        static_df.select(pl.len()).collect().item()
-        == static_df.select(pl.col("patient_id").n_unique()).collect().item()
-    )
+    assert L == static_df.select(pl.col("patient_id").n_unique()).collect().item()
     meds_df = get_unique_time_events_df(get_events_df(meds_df, feature_columns))
 
     # load static data as sparse matrix
@@ -183,8 +193,18 @@ def get_flat_static_rep(
     Returns:
         A sparse array representing the static features for the provided shard of data.
     """
+    L = shard_df.select(pl.len()).collect().item()
+    if L == 0:
+        raise ValueError("Shard DataFrame is empty!")
+
     static_features = get_feature_names(agg=agg, feature_columns=feature_columns)
     static_measurements = summarize_static_measurements(agg, static_features, df=shard_df)
+    if len(static_measurements) == 0:
+        raise ValueError(
+            f"No static measurements found in the DataFrame! Static features: {static_features}, "
+            f"shard_df columns: {shard_df.columns}, len(shard_df): {L}"
+        )
+
     # convert to sparse_matrix
     matrix = get_sparse_static_rep(static_features, static_measurements.lazy(), shard_df, feature_columns)
     assert matrix.shape[1] == len(
