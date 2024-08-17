@@ -299,6 +299,30 @@ class Iterator(xgb.DataIter, TimeableMixin):
         y = np.concatenate(y, axis=0)
         return X, y
 
+    def get_all_column_names(self) -> list[str]:
+        """Retrieves the names of all columns in the data.
+
+        Returns:
+            The names of all columns.
+        """
+        files = get_model_files(self.cfg, self.split, self._data_shards[0])
+
+        def extract_name(test_file):
+            return str(Path(test_file.parent.parent.stem, test_file.parent.stem, test_file.stem))
+
+        agg_wind_combos = [extract_name(test_file) for test_file in files]
+
+        feature_columns = get_feature_columns(self.cfg.tabularization.filtered_code_metadata_fp)
+        all_feats = []
+        for agg_wind in agg_wind_combos:
+            window, feat, agg = agg_wind.split("/")
+            feature_ids = get_feature_indices(feat + "/" + agg, feature_columns)
+            feature_names = [feature_columns[i] for i in feature_ids]
+            for feat_name in feature_names:
+                all_feats.append(f"{feat_name}/{agg}/{window}")
+
+        return all_feats
+
 
 class XGBoostModel(TimeableMixin):
     """Class for configuring, training, and evaluating an XGBoost model.
