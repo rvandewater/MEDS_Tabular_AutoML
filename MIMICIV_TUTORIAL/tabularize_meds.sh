@@ -59,33 +59,33 @@ echo
 
 # Reshard the data
 # echo "Resharding data"
-MEDS_transform-reshard_to_split \
-  --multirun \
-  worker="range(0,6)" \
-  hydra/launcher=joblib \
-  input_dir="$MIMICIV_MEDS_DIR" \
-  cohort_dir="$MIMICIV_MEDS_RESHARD_DIR" \
-  'stages=["reshard_to_split"]' \
-  stage="reshard_to_split" \
-  stage_configs.reshard_to_split.n_subjects_per_shard=2500 \
-  "polling_time=5"
+# MEDS_transform-reshard_to_split \
+#   --multirun \
+#   worker="range(0,6)" \
+#   hydra/launcher=joblib \
+#   input_dir="$MIMICIV_MEDS_DIR" \
+#   cohort_dir="$MIMICIV_MEDS_RESHARD_DIR" \
+#   'stages=["reshard_to_split"]' \
+#   stage="reshard_to_split" \
+#   stage_configs.reshard_to_split.n_subjects_per_shard=2500 \
+#   "polling_time=5"
 
-# describe codes
-echo "Describing codes"
-meds-tab-describe \
-    "input_dir=${MIMICIV_MEDS_RESHARD_DIR}/data" "output_dir=$OUTPUT_TABULARIZATION_DIR"
+# # describe codes
+# echo "Describing codes"
+# meds-tab-describe \
+#     "input_dir=${MIMICIV_MEDS_RESHARD_DIR}/data" "output_dir=$OUTPUT_TABULARIZATION_DIR"
 
 # echo "Tabularizing static data"
 # meds-tab-tabularize-static \
 #     "input_dir=${MIMICIV_MEDS_RESHARD_DIR}/data" "output_dir=$OUTPUT_TABULARIZATION_DIR" \
 #     do_overwrite=False "$@"
 
-meds-tab-tabularize-time-series \
-    --multirun \
-    worker="range(0,$N_PARALLEL_WORKERS)" \
-    hydra/launcher=joblib \
-    "input_dir=${MIMICIV_MEDS_RESHARD_DIR}/data" "output_dir=$OUTPUT_TABULARIZATION_DIR" \
-    do_overwrite=False "$@"
+# meds-tab-tabularize-time-series \
+#     --multirun \
+#     worker="range(0,$N_PARALLEL_WORKERS)" \
+#     hydra/launcher=joblib \
+#     "input_dir=${MIMICIV_MEDS_RESHARD_DIR}/data" "output_dir=$OUTPUT_TABULARIZATION_DIR" \
+#     do_overwrite=False "$@"
 
 for TASK in "${TASK_ARRAY[@]}"
 do
@@ -96,11 +96,11 @@ do
     "input_label_dir=${TASKS_DIR}/${TASK}/" "task_name=${TASK}" do_overwrite=False "$@"
 
   echo "Running xgboost for task: $TASK"
-  meds-tab-xgboost \
-      --multirun \
-      worker="range(0,$N_PARALLEL_WORKERS)" \
-      "input_dir=${MIMICIV_MEDS_RESHARD_DIR}/data" "output_dir=$OUTPUT_TABULARIZATION_DIR" \
-      "output_model_dir=${OUTPUT_MODEL_DIR}/${TASK}/" "task_name=$TASK" do_overwrite=False \
-      "hydra.sweeper.n_trials=1000" "hydra.sweeper.n_jobs=${N_PARALLEL_WORKERS}" \
-      "$@"
+#   meds-tab-xgboost \
+#       --multirun \
+#       worker="range(0,$N_PARALLEL_WORKERS)" \
+#       "input_dir=${MIMICIV_MEDS_RESHARD_DIR}/data" "output_dir=$OUTPUT_TABULARIZATION_DIR" \
+#       "output_model_dir=${OUTPUT_MODEL_DIR}/${TASK}/" "task_name=$TASK" do_overwrite=False \
+#       "hydra.sweeper.n_trials=1000" "hydra.sweeper.n_jobs=${N_PARALLEL_WORKERS}" \
+#       "$@"
 done
